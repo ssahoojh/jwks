@@ -179,9 +179,17 @@
       throw new Error("GitHub Personal Access Token (PAT) is required.");
     }
   }
-  async function loadRepoAlerts(repo) {
+  async function loadRepoAlerts(repo, scanType) {
     let results = [];
-    let url = `https://api.github.com/repos/JHACPS/${repo}/dependabot/alerts?per_page=100`;
+
+    const endpointMap = {
+      dependabot: "dependabot/alerts",
+      codescanning: "code-scanning/alerts"
+    };
+
+    const endpoint = endpointMap[scanType];
+
+    let url = `https://api.github.com/repos/JHACPS/${repo}/${endpoint}?per_page=100`;
 
     while (url) {
       const response = await fetch(url, {
@@ -194,6 +202,7 @@
 
       alerts.forEach(a => {
         a.repoName = repo;
+        a.scanType = scanType;
       });
 
       results.push(...alerts);
@@ -208,24 +217,38 @@
 
   async function search() {
     setToken();
+
     document.getElementById("app").innerHTML = "<p>Loading...</p>";
 
     const selectedRepo = document.getElementById("repo").value;
+    const scanType = document.getElementById("scanType").value;
 
     const repos =
       selectedRepo === "All"
         ? allRepos
         : [selectedRepo];
 
-    const repoResults = await Promise.all(
-      repos.map(loadRepoAlerts)
-    );
+    let repoResults;
+
+    if (scanType === "all") {
+      repoResults = await Promise.all(
+        repos.flatMap(repo => [
+          loadRepoAlerts(repo, "dependabot"),
+          loadRepoAlerts(repo, "codescanning")
+        ])
+      );
+    } else {
+      repoResults = await Promise.all(
+        repos.map(repo => loadRepoAlerts(repo, scanType))
+      );
+    }
 
     const results = repoResults.flat();
 
     rows = results.map(toReportRow);
     applyFilters();
   }
+
   function exportExcel() {
     const ws = XLSX.utils.json_to_sheet(rows);
 
@@ -237,6 +260,7 @@
       `DependabotAlerts_${new Date().toISOString().slice(0, 10)}.xlsx`
     );
   }
+
   function applyFilters() {
     const from = document.getElementById('fromDate').value;
     const to = document.getElementById('toDate').value;
@@ -267,21 +291,42 @@
   }
 
   function toReportRow(alert) {
-    const advisory = alert.security_advisory || {};
-    const vuln = alert.security_vulnerability || {};
+    // Dependabot
+    if (alert.security_advisory) {
+      const advisory = alert.security_advisory || {};
+      const vuln = alert.security_vulnerability || {};
+      return {
+        AlertId: alert.number,
+        Summary: advisory.summary,
+        State: alert.state,
+        FixedAt: alert.fixed_at ?? alert.dismissed_at,
+        CreatedAt: alert.created_at,
+        Severity: advisory.severity,
+        CVE: advisory.cve_id,
+        CVSS: advisory.cvss?.score,
+        FixedVersion: vuln.first_patched_version?.identifier,
+        Package: alert.dependency?.package?.name,
+        Project: alert.dependency?.manifest_path,
+        Repo: alert.repoName,
+        ScanType: "dependabot"
+      };
+    }
 
+    // Code Scanning
     return {
       AlertId: alert.number,
-      Summary: advisory.summary,
+      Summary: alert.rule?.description || alert.rule?.name || alert.most_recent_instance?.message?.text,
       State: alert.state,
-      FixedAt: alert.fixed_at ?? alert.dismissed_at,//created_at
+      FixedAt: alert.fixed_at ?? alert.dismissed_at,
       CreatedAt: alert.created_at,
-      Severity: advisory.severity,
-      CVE: advisory.cve_id,
-      CVSS: advisory.cvss?.score,
-      FixedVersion: vuln.first_patched_version?.identifier,
-      Package: alert.dependency?.package?.name,
-      Project: alert.dependency?.manifest_path
+      Severity: alert.rule?.security_severity_level || alert.rule?.severity,
+      CVE: "",
+      CVSS: "",
+      FixedVersion: "",
+      Package: alert.tool?.name,
+      Project: alert.most_recent_instance?.location?.path,
+      Repo: alert.repoName,
+      ScanType: "codescanning"
     };
   }
 

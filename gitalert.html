@@ -148,7 +148,8 @@
 </div>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script>
-  let token = localStorage.getItem("github_pat");
+  document.getElementById("pat").value = localStorage.getItem("github_pat");
+  let token = "";
   let rows = [];
   const allRepos = [
     "CPSServicesGateway",
@@ -170,23 +171,15 @@
     // "CPSServiceCore"
   ];
   function setToken() {
-    let tbpat = document.getElementById("pat");
-    token = tbpat.value.trim();
-    if (token) {
+    token = document.getElementById("pat")?.value?.trim();
+    if (token)
       localStorage.setItem("github_pat", token);
-    } else {
-      const storedPat = localStorage.getItem("github_pat");
-      if (storedPat) {
-        token = storedPat;
-        tbpat.value = token;
-      }
-    }
-    if (!token) {
+    else {
       alert("Please enter a GitHub Personal Access Token (PAT) to proceed.");
       throw new Error("GitHub Personal Access Token (PAT) is required.");
     }
   }
-  async function loadRepoAlerts(repo) {    
+  async function loadRepoAlerts(repo) {
     let results = [];
     let url = `https://api.github.com/repos/JHACPS/${repo}/dependabot/alerts?per_page=100`;
 
